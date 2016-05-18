@@ -10,63 +10,62 @@ from tqdm import tqdm
 from threading import Thread
 import Queue
 
-#setup our instance variables.
-cj = cookielib.CookieJar()
-br = mechanize.Browser()
-br.set_cookiejar(cj)
-print 'Welcome to firedrop file getter'
-print '--------------------------------'
-enter_url = raw_input('Please enter the main firedrop URL: ')
-enter_filename = raw_input('Please enter part of the filename(s) you wish to download: ')
-enter_pw = raw_input('Please enter the password: ')
-#browser methods (we get input from user input)
-#note br.form is coupled to firedrop.com
-br.open(enter_url)
-br.select_form(nr=0)
-br.form['folderPassword'] = enter_pw
-br.submit()
-#read the inital 'link page' and copy the response (this is the page with all the download links).
-first_resp = br.response().read()
-soup = BeautifulSoup(first_resp, 'html.parser')
-#a quick little password check that checks the response page for the given filename text
-if enter_filename not in soup.text:
-    print '---Sorry, Incorrect Password. Quiting...'
-    raise SystemExit
-else:
-    print '---Password Successful!' 
-mainpage_links = []
-mainpage_links_name = []
-for link in soup.find_all('a',href=True):
-    if enter_filename in link.text:
-        print 'Copying mainpage link...',link
-        mainpage_links.append(link['href'])
-        mainpage_links_name.append(link.text)
-print 'Copying mainpage links complete!'
-#then we open an individual link (which takes us to the download page of that file).
-#note: this is done once. Basically first we parse the main page for links, 
-#then we open every mainlink to get the actual file link, but we don't download yet.
-download_urls = []
-print 'Opening mainpage links and finding file download URLs...'
-for page in mainpage_links:
-	#here we need to parse the final dl page for the actual file url.
-	download_page = urllib2.urlopen(page)
-	new_soup = BeautifulSoup(download_page.read(), 'html.parser')
-	script = new_soup.find_all('script')
-	script_bit = ''
-	for item in script:
-		if 'Download File' in item.text:
-			script_bit = item.text
-	pattern = re.compile("(\w+)='(.*?)'")
-	fields = dict(re.findall(pattern, script_bit))
-	print 'Copying file download URL...',fields['href']
-	#append the actual download file url to a list.
-	download_urls.append(fields['href'])
+def run():
+    print 'Welcome to firedrop file getter'
+    print '--------------------------------'
+    enter_url = raw_input('Please enter the main firedrop URL: ')
+    enter_filename = raw_input('Please enter part of the filename(s) you wish to download: ')
+    enter_pw = raw_input('Please enter the password: ')
+    scrape_pages(enter_url,enter_filename,enter_pw)
 
-#setup our queue.
-#multithread option.
-num_threads = 1
-enclosed_q = Queue.Queue()
-counter = 0
+def scrape_pages(enter_url,enter_filename,enter_pw):
+    #setup our instance variables.
+    cj = cookielib.CookieJar()
+    br = mechanize.Browser()
+    br.set_cookiejar(cj)
+    #browser methods (we get input from user input)
+    #note br.form is coupled to firedrop.com
+    br.open(enter_url)
+    br.select_form(nr=0)
+    br.form['folderPassword'] = enter_pw
+    br.submit()
+    #read the inital 'link page' and copy the response (this is the page with all the download links).
+    first_resp = br.response().read()
+    soup = BeautifulSoup(first_resp, 'html.parser')
+    #a quick little password check that checks the response page for the given filename text
+    if enter_filename not in soup.text:
+        print '---Sorry, Incorrect Password. Quiting...'
+        raise SystemExit
+    else:
+        print '---Password Successful!' 
+    mainpage_links = []
+    mainpage_links_name = []
+    for link in soup.find_all('a',href=True):
+        if enter_filename in link.text:
+            print 'Copying mainpage link...',link
+            mainpage_links.append(link['href'])
+            mainpage_links_name.append(link.text)
+    print 'Copying mainpage links complete!'
+    #then we open an individual link (which takes us to the download page of that file).
+    #note: this is done once. Basically first we parse the main page for links, 
+    #then we open every mainlink to get the actual file link, but we don't download yet.
+    download_urls = []
+    print 'Opening mainpage links and finding file download URLs...'
+    for page in mainpage_links:
+	    #here we need to parse the final dl page for the actual file url.
+	    download_page = urllib2.urlopen(page)
+	    new_soup = BeautifulSoup(download_page.read(), 'html.parser')
+	    script = new_soup.find_all('script')
+	    script_bit = ''
+	    for item in script:
+		    if 'Download File' in item.text:
+			    script_bit = item.text
+	    pattern = re.compile("(\w+)='(.*?)'")
+	    fields = dict(re.findall(pattern, script_bit))
+	    print 'Copying file download URL...',fields['href']
+	    #append the actual download file url to a list.
+	    download_urls.append(fields['href'])
+    thread_queue(download_urls, mainpage_links_name)
 
 def download(i,q,counter, file):
     while True:
@@ -74,7 +73,7 @@ def download(i,q,counter, file):
         url = q.get()
         print '%s: Downloading:' % i, url
         #download
-        file_name = mainpage_links_name[counter]
+        file_name = file[counter]
         counter += 1
         #first HTTP request.
         res = requests.get(url,stream=False)
@@ -110,13 +109,23 @@ def download(i,q,counter, file):
                 code.write(data)
         q.task_done()
 
-for i in range(num_threads):
-    dae = Thread(target=download, args=(i, enclosed_q, counter, mainpage_links_name))
-    dae.setDaemon(True)
-    dae.start()
+def thread_queue(download_urls, mainpage_links_name):
+    #setup our queue.
+    #multithread option.
+    num_threads = 1
+    enclosed_q = Queue.Queue()
+    counter = 0
 
-for url in download_urls:
-    enclosed_q.put(url)
+    for i in range(num_threads):
+        dae = Thread(target=download, args=(i, enclosed_q, counter, mainpage_links_name))
+        dae.setDaemon(True)
+        dae.start()
 
-enclosed_q.join()
-print '\n---------- DONE ----------'
+    for url in download_urls:
+        enclosed_q.put(url)
+
+    enclosed_q.join()
+    print '\n---------- DONE ----------'
+
+if __name__ == "__main__":
+    run()
