@@ -9,13 +9,11 @@ from requests import Request, Session
 from tqdm import tqdm
 from threading import Thread
 import Queue
+import argparse
 
-def run():
+def run(enter_url,enter_filename,enter_pw):
     print 'Welcome to firedrop file getter'
     print '--------------------------------'
-    enter_url = raw_input('Please enter the main firedrop URL: ')
-    enter_filename = raw_input('Please enter part of the filename(s) you wish to download: ')
-    enter_pw = raw_input('Please enter the password: ')
     scrape_pages(enter_url,enter_filename,enter_pw)
 
 def scrape_pages(enter_url,enter_filename,enter_pw):
@@ -128,4 +126,10 @@ def thread_queue(download_urls, mainpage_links_name):
     print '\n---------- DONE ----------'
 
 if __name__ == "__main__":
-    run()
+    # Setup args.
+    parser = argparse.ArgumentParser()
+    parser.add_argument('url',help='The main firedrop folder URL')
+    parser.add_argument('filename',help='Part of the actual filename(s) of files you want to download')
+    parser.add_argument('password',help='The folder password')
+    args = parser.parse_args()
+    run(args.url,args.filename,args.password)
